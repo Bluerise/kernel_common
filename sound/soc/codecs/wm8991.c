@@ -35,6 +35,12 @@
 
 #include "wm8991.h"
 
+#ifdef CONFIG_3G
+#include <mach/iphone-clock.h>
+#define I2S0_CLOCK 0x27
+#define I2S1_CLOCK 0x2A
+#endif
+
 #define WM8991_INT_GPIO 0x1604
 
 /* codec private data */
@@ -1383,6 +1389,11 @@ static int wm8991_suspend(struct platform_device *pdev, pm_message_t state)
 	if (!codec->card)
 		return 0;
 
+#ifdef CONFIG_3G
+	iphone_clock_gate_switch(I2S0_CLOCK, false);
+	iphone_clock_gate_switch(I2S1_CLOCK, false);
+#endif
+
 	wm8991_set_bias_level(codec, SND_SOC_BIAS_OFF);
 	return 0;
 }
@@ -1398,6 +1409,11 @@ static int wm8991_resume(struct platform_device *pdev)
 	/* we only need to resume if we are a valid card */
 	if (!codec->card)
 		return 0;
+
+#ifdef CONFIG_3G
+	iphone_clock_gate_switch(I2S0_CLOCK, true);
+	iphone_clock_gate_switch(I2S1_CLOCK, true);
+#endif
 
 	/* Sync reg_cache with the hardware */
 	for (i = 0; i < ARRAY_SIZE(wm8991_reg); i++) {

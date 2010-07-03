@@ -750,6 +750,30 @@ static int __devexit iphone_sdio_remove(struct platform_device* pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int iphone_sdio_suspend(struct device *dev)
+{
+	iphone_clock_gate_switch(SDIO_CLOCKGATE, false);
+	iphone_clock_gate_switch(SDIO_CLOCKGATE, false);
+	return 0;
+}
+
+static int iphone_sdio_resume(struct device *dev)
+{
+	iphone_clock_gate_switch(SDIO_CLOCKGATE, true);
+	iphone_clock_gate_switch(SDIO_CLOCKGATE, true);
+	return 0;
+}
+
+static const struct dev_pm_ops iphone_sdio_pm_ops = {
+	.suspend        = iphone_sdio_suspend,
+	.resume         = iphone_sdio_resume,
+};
+#define IPHONE_SDIO_PM_OPS (&iphone_sdio_pm_ops)
+#else
+#define IPHONE_SDIO_PM_OPS NULL
+#endif
+
 static struct resource iphone_sdio_resources[] = {
 	[0] = {
 		.start  = SDIO_PA,
@@ -774,6 +798,7 @@ static struct platform_driver iphone_sdio_driver = {
 	.driver         = {
 		.name   = "iphone-sdio",
 		.owner  = THIS_MODULE,
+		.pm	= IPHONE_SDIO_PM_OPS,
 	},
 	.probe          = iphone_sdio_probe,
 	.remove         = __devexit_p(iphone_sdio_remove),

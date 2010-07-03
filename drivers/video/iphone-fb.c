@@ -44,6 +44,13 @@
 #define BYTES_PER_PIXEL 2
 #define NUMBER_OF_BUFFERS 2
 
+#ifdef CONFIG_PM
+#include <mach/iphone-clock.h>
+// Clock Gates
+#define LCD_CLOCKGATE1 0x7
+#define LCD_CLOCKGATE2 0x1D
+#endif
+
 DECLARE_COMPLETION(vsync_completion);
 
 static void iphone_set_fb_address(int window, dma_addr_t address) {
@@ -418,17 +425,41 @@ static int __init iphonefb_remove(struct platform_device *pdev)
 
 /* for platform devices */
 
+#ifdef CONFIG_PM
+static int iphone_fb_suspend(struct device *dev)
+{
+	iphone_clock_gate_switch(LCD_CLOCKGATE1, false);
+	iphone_clock_gate_switch(LCD_CLOCKGATE2, false);
+	return 0;
+}
+
+static int iphone_fb_resume(struct device *dev)
+{
+	iphone_clock_gate_switch(LCD_CLOCKGATE1, true);
+	iphone_clock_gate_switch(LCD_CLOCKGATE2, true);
+	return 0;
+}
+
+static const struct dev_pm_ops iphone_fb_pm_ops = {
+	.suspend        = iphone_fb_suspend,
+	.resume         = iphone_fb_resume,
+};
+#define IPHONE_FB_PM_OPS (&iphone_fb_pm_ops)
+#else
+#define IPHONE_FB_PM_OPS NULL
+#endif
+
+
 #define iphonefb_suspend NULL
 #define iphonefb_resume NULL
 
 static struct platform_driver iphonefb_driver = {
 	.probe = iphonefb_probe,
 	.remove = iphonefb_remove,
-	.suspend = iphonefb_suspend, /* optional but recommended */
-	.resume = iphonefb_resume,   /* optional but recommended */
 	.driver = {
 		.owner = THIS_MODULE,
 		.name = "iphonefb",
+		.pm = IPHONE_FB_PM_OPS,
 	},
 };
 

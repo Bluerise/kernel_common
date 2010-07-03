@@ -516,6 +516,29 @@ static int __devexit iphone_dma_remove(struct platform_device *pdev)
 {
 	return 0;
 }
+#ifdef CONFIG_PM
+static int iphone_dma_pm_suspend(struct device *dev)
+{
+	iphone_clock_gate_switch(DMAC0_CLOCKGATE, false);
+	iphone_clock_gate_switch(DMAC1_CLOCKGATE, false);
+	return 0;
+}
+
+static int iphone_dma_pm_resume(struct device *dev)
+{
+	iphone_clock_gate_switch(DMAC0_CLOCKGATE, true);
+	iphone_clock_gate_switch(DMAC1_CLOCKGATE, true);
+	return 0;
+}
+
+static const struct dev_pm_ops iphone_dma_pm_ops = {
+	.suspend        = iphone_dma_pm_suspend,
+	.resume         = iphone_dma_pm_resume,
+};
+#define IPHONE_DMA_PM_OPS (&iphone_dma_pm_ops)
+#else
+#define IPHONE_DMA_PM_OPS NULL
+#endif
 
 static struct resource iphone_dma_resources[] = {
 	[0] = {
@@ -550,11 +573,10 @@ static struct platform_driver iphone_dma_driver = {
 	.driver         = {
 		.name   = "iphone-dma",
 		.owner  = THIS_MODULE,
+		.pm	= IPHONE_DMA_PM_OPS,
 	},
 	.probe          = iphone_dma_probe,
 	.remove         = __devexit_p(iphone_dma_remove),
-	.suspend        = NULL,
-	.resume         = NULL,
 };
 
 static int __init iphone_dma_modinit(void)

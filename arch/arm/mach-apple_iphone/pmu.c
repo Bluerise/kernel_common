@@ -9,6 +9,7 @@
 #include <linux/i2c.h>
 #include <mach/gpio.h>
 
+#define PCF5063X_REG_MBCC1 0x43
 
 static struct i2c_client *pmu_i2c;
 static struct rtc_device *rtc;
@@ -263,6 +264,8 @@ static int pmu_i2c_probe(struct i2c_client *i2c,
 		ret = PTR_ERR(rtc);
 		goto err_nortc;
 	}
+
+	iphone_pmu_write_reg(PCF5063X_REG_MBCC1, iphone_pmu_get_reg(PCF5063X_REG_MBCC1) | 7, 0);
 
 	return 0;
 

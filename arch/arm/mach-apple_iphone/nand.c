@@ -131,6 +131,7 @@ static u8* aTemporarySBuf;
 // Linux stuff
 
 static struct device *nand_dev;
+int suspended = true;
 
 #ifdef FTL_PROFILE
 static bool InWrite = false;
@@ -412,9 +413,22 @@ static int wait_for_transfer_done(int timeout) {
 	return 0;
 }
 
+static int iphone_nand_resume(struct device *dev)
+{
+	iphone_clock_gate_switch(NAND_CLOCK_GATE1, true);
+	iphone_clock_gate_switch(NAND_CLOCK_GATE2, true);
+	suspended = false;
+	return 0;
+}
+
 int nand_read_status(void)
 {
 	int status;
+
+#ifdef CONFIG_PM
+	if (suspended)
+		iphone_nand_resume(nand_dev);
+#endif
 
 	writel(readl(NAND + NAND_REG_44) & ~(1 << 4), NAND + NAND_REG_44);
 	writel(FMCTRL1_CLEARALL, NAND + FMCTRL1);
@@ -751,6 +765,11 @@ int nand_erase(int bank, int block)
 {
 	int pageAddr;
 
+#ifdef CONFIG_PM
+	if (suspended)
+		iphone_nand_resume(nand_dev);
+#endif
+
 	if(bank >= Geometry.banksTotal)
 		return -EINVAL;
 
@@ -790,6 +809,11 @@ FIL_erase_error:
 
 int nand_write(int bank, int page, u8* buffer, u8* spare, bool doECC)
 {
+#ifdef CONFIG_PM
+	if (suspended)
+		iphone_nand_resume(nand_dev);
+#endif
+
 #ifdef FTL_PROFILE
 	u64 startTime;
 #endif
@@ -901,6 +925,11 @@ int nand_bank_reset(int bank, int timeout)
 {
 	int ret;
 
+#ifdef CONFIG_PM
+	if (suspended)
+		iphone_nand_resume(nand_dev);
+#endif
+
 	writel(((WEHighHoldTime & FMCTRL_TWH_MASK) << FMCTRL_TWH_SHIFT) | ((WPPulseTime & FMCTRL_TWP_MASK) << FMCTRL_TWP_SHIFT)
 			| (1 << (banksTable[bank] + 1)) | FMCTRL0_ON | FMCTRL0_WPB, NAND + FMCTRL0);
 
@@ -939,8 +968,8 @@ int nand_setup(void)
 
 	LOG("nand: Probing flash controller...\n");
 
-	iphone_clock_gate_switch(NAND_CLOCK_GATE1, true);
-	iphone_clock_gate_switch(NAND_CLOCK_GATE2, true);
+	if (suspended)
+		iphone_nand_resume(nand_dev);
 
 	for(bank = 0; bank < NAND_NUM_BANKS; bank++) {
 		banksTable[bank] = bank;
@@ -1101,6 +1130,25 @@ static int __devexit iphone_nand_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int iphone_nand_suspend(struct device *dev)
+{
+	iphone_clock_gate_switch(NAND_CLOCK_GATE1, false);
+	iphone_clock_gate_switch(NAND_CLOCK_GATE2, false);
+	suspended = true;
+	return 0;
+}
+
+static const struct dev_pm_ops iphone_nand_pm_ops = {
+	.suspend	= iphone_nand_suspend,
+	.resume		= iphone_nand_resume,
+};
+#define IPHONE_NAND_PM_OPS (&iphone_nand_pm_ops)
+#else
+#define IPHONE_NAND_PM_OPS NULL
+#endif
+
+
 static struct resource iphone_nand_resources[] = {
 	[0] = {
 		.start  = NAND_PA,
@@ -1130,11 +1178,10 @@ static struct platform_driver iphone_nand_driver = {
 	.driver         = {
 		.name   = "iphone-nand",
 		.owner  = THIS_MODULE,
+		.pm	= IPHONE_NAND_PM_OPS,
 	},
 	.probe          = iphone_nand_probe,
 	.remove         = __devexit_p(iphone_nand_remove),
-	.suspend        = NULL,
-	.resume         = NULL,
 };
 
 static int __init iphone_nand_modinit(void)
