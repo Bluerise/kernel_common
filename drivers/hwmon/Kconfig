@@ -410,6 +410,7 @@ config SENSORS_IBMPEX
 
 config SENSORS_IPHONE_ACCEL
 	tristate "iPhone/iPod Accelerometer"
+	select INPUT_POLLDEV
 	depends on (IPHONE_3G || IPHONE_2G || IPODTOUCH_1G) && I2C
 
 config SENSORS_IT87

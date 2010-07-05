@@ -17,6 +17,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+/*
+ * addons by Dario Russo, (turbominchiameister@gmail.com)
+ * based on the work of Kalhan Trisal and Alan Cox
+ */
+
 #include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -24,45 +29,93 @@
 #include <linux/jiffies.h>
 #include <linux/io.h>
 #include <linux/i2c.h>
+#include <linux/input.h>
+#include <linux/device.h>
+#include <linux/platform_device.h>
 #include <mach/accel.h>
+#include <linux/irq.h>
+#include <linux/interrupt.h>
+#include <linux/input-polldev.h>
 
-static struct i2c_client *iphone_accel_i2c;
+#define CTRL_REG1				0x20
+#define CTRL_REG1_POWER_DOWN			(1<<6)
 
-int accel_get_reg(int reg) {
-	return i2c_smbus_read_byte_data(iphone_accel_i2c, reg);
+struct iphone_accel_info *accel_info;
+
+struct iphone_accel_info {
+	struct i2c_device *i2c_dev;
+	struct i2c_client *i2c_client;
+	struct input_dev *input_dev;
+	struct input_polled_dev *idev;
+	struct mutex lock;
+	struct work_struct work;
+	unsigned int flags;
+	unsigned int working;
+	u_int8_t regs[0x40];
+};
+
+int accel_read_reg(int reg) {
+	return i2c_smbus_read_byte_data(accel_info->i2c_client, reg);
 }
 
 void accel_write_reg(int reg, int data) {
-	i2c_smbus_write_byte_data(iphone_accel_i2c, reg, data);
+	i2c_smbus_write_byte_data(accel_info->i2c_client, reg, data);
 }
 
 /* Sysfs methods */
-
 static int iphone_accel_read(int *x, int *y, int *z) {
-	*x = (signed char)accel_get_reg(ACCEL_OUTX);
-	*y = (signed char)accel_get_reg(ACCEL_OUTY);
-	*z = (signed char)accel_get_reg(ACCEL_OUTZ);
+	*x = (signed char)accel_read_reg(ACCEL_OUTX);
+	*y = (signed char)accel_read_reg(ACCEL_OUTY);
+	*z = (signed char)accel_read_reg(ACCEL_OUTZ);
+
 	return 0;
 }
 
 /* Sysfs Files */
-
-static ssize_t iphone_accel_show(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t power_mode_show(struct device *dev,
+                       struct device_attribute *attr, char *buf)
 {
-	int ret, x, y, z;
+	int val;
 
-	ret = iphone_accel_read(&x, &y, &z);
-	if (ret)
-		return ret;
-
-	return sprintf(buf, "%d:%d:%d\n", x, y, z);
+	val = accel_read_reg(CTRL_REG1) & CTRL_REG1_POWER_DOWN;
+	if (val == CTRL_REG1_POWER_DOWN)
+		val = 1;
+	return sprintf(buf, "%d\n", val);
 }
 
-static DEVICE_ATTR(acceleration, 0444, iphone_accel_show, NULL);
+static ssize_t power_mode_store(struct device *dev,
+               struct device_attribute *attr, const  char *buf, size_t count)
+{
+       unsigned int ret_val;
+       unsigned long val;
+
+       if (strict_strtoul(buf, 10, &val))
+               return -EINVAL;
+
+       mutex_lock(&accel_info->lock);
+
+       ret_val = accel_read_reg( CTRL_REG1);
+       ret_val &= 0xBF;
+
+       switch(val) {
+       case 1:
+               ret_val |= CTRL_REG1_POWER_DOWN;
+       case 0:
+               accel_write_reg( CTRL_REG1, ret_val);
+               break;
+       default:
+               mutex_unlock(&accel_info->lock);
+               return -EINVAL;
+       }
+       mutex_unlock(&accel_info->lock);
+       return count;
+}
+
+
+static DEVICE_ATTR(power_state, S_IRUGO | S_IWUSR, power_mode_show, power_mode_store);
 
 static struct attribute *iphone_accel_attributes[] = {
-	&dev_attr_acceleration.attr,
+	&dev_attr_power_state.attr,
 	NULL,
 };
 
@@ -71,33 +124,71 @@ static struct attribute_group iphone_accel_attribute_group = {
 };
 
 
-/* Device model stuff */
+static void iphone_accel_input_poll(struct input_polled_dev *idev)
+{
+	int x,y,z;
+	iphone_accel_read(&x,&y,&z);
+	input_report_abs(idev->input, ABS_X, x);
+#ifdef CONFIG_IPHONE_2G
+	input_report_abs(idev->input, ABS_Y, -y);
+	input_report_abs(idev->input, ABS_Z, -z);
+#else
+	input_report_abs(idev->input, ABS_Y, y);
+	input_report_abs(idev->input, ABS_Z, z);
+#endif
+}
 
 static int __devinit iphone_accel_probe(struct i2c_client *i2c,
-                            const struct i2c_device_id *id)
+                            const struct i2c_device_id *device_id)
 {
 	int ret;
 	int whoami;
-	
-	iphone_accel_i2c = i2c;
 
-	ret = sysfs_create_group(&iphone_accel_i2c->dev.kobj, &iphone_accel_attribute_group);
+	accel_info=kzalloc(sizeof(*accel_info), GFP_KERNEL);
+	if (!accel_info)
+		return -ENOMEM;
+
+	mutex_init(&accel_info->lock);
+
+	accel_info->idev=input_allocate_polled_device();
+	accel_info->idev->poll = iphone_accel_input_poll;
+	accel_info->idev->poll_interval = 50;
+	accel_info->input_dev=accel_info->idev->input;
+	accel_info->i2c_client=i2c;
+
+	ret = sysfs_create_group(&accel_info->i2c_client->dev.kobj, &iphone_accel_attribute_group);
 	if (ret)
 		goto out;
 
-	whoami = accel_get_reg(ACCEL_WHOAMI);
-	if(whoami != ACCEL_WHOAMI_VALUE)
+	whoami = accel_read_reg(ACCEL_WHOAMI);
+	if(whoami != ACCEL_WHOAMI_VALUE) {
+		printk(KERN_INFO "iphone-accel: incorrect whoami value\n");
 		goto out_sysfs;
+	}
 
 	accel_write_reg(ACCEL_CTRL_REG2, ACCEL_CTRL_REG2_BOOT);
 	accel_write_reg(ACCEL_CTRL_REG1, ACCEL_CTRL_REG1_PD | ACCEL_CTRL_REG1_XEN | ACCEL_CTRL_REG1_YEN | ACCEL_CTRL_REG1_ZEN);
 
-	printk(KERN_INFO "iphone_accel: device successfully initialized.\n");
+	accel_info->input_dev->name = "ST LIS331DL 3 axis-accelerometer";
+	accel_info->input_dev->phys       = "iphone_accel/input0";
+	accel_info->input_dev->id.bustype = BUS_I2C;
+	accel_info->input_dev->id.vendor = 0;
+	accel_info->input_dev->dev.parent = &i2c->dev;
+
+	set_bit(EV_ABS, accel_info->input_dev->evbit);
+	set_bit(ABS_X, accel_info->input_dev->absbit);
+	set_bit(ABS_Y, accel_info->input_dev->absbit);
+	set_bit(ABS_Z, accel_info->input_dev->absbit);
+
+	ret = input_register_polled_device(accel_info->idev);
+	if (ret)
+		goto out_sysfs;
+
+	printk( "iphone_accel: device successfully initialized.\n");
 	return 0;
 
 out_sysfs:
-	sysfs_remove_group(&iphone_accel_i2c->dev.kobj, &iphone_accel_attribute_group);
-	printk(KERN_INFO "iphone-accel: incorrect whoami value\n");
+	sysfs_remove_group(&accel_info->i2c_client->dev.kobj, &iphone_accel_attribute_group);
 out:
 	printk(KERN_INFO "iphone_accel: error initializing\n");
 	return -1;
@@ -105,8 +196,11 @@ out:
 
 static int __devexit iphone_accel_remove(struct i2c_client *client)
 {
-	sysfs_remove_group(&iphone_accel_i2c->dev.kobj, &iphone_accel_attribute_group);
-	iphone_accel_i2c = NULL;
+	sysfs_remove_group(&accel_info->i2c_client->dev.kobj, &iphone_accel_attribute_group);
+	input_unregister_polled_device(accel_info->idev);
+	input_free_polled_device(accel_info->idev);
+	kfree(accel_info);
+
 	return 0;
 }
 
@@ -135,10 +229,9 @@ static int __init iphone_accel_init(void)
 
 	ret = i2c_add_driver(&iphone_accel_driver);
 	if (ret) {
-		printk("iphone_accel: Unable to register I2C driver: %d\n", ret);
+		printk("iphone_accel: unable to register I2C driver: %d\n", ret);
 		goto out;
 	}
-
 
 	printk(KERN_INFO "iphone_accel: driver successfully loaded.\n");
 	return 0;
@@ -159,5 +252,5 @@ module_init(iphone_accel_init);
 module_exit(iphone_accel_exit);
 
 MODULE_AUTHOR("Patrick Wildt <webmaster@patrick-wildt.de>");
-MODULE_DESCRIPTION("iPhone Acceleration Driver");
+MODULE_DESCRIPTION("iPhone Accelerometer Driver");
 MODULE_LICENSE("GPL v2");
