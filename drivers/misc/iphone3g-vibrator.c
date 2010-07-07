@@ -63,9 +63,8 @@ void iphone_vibrator_enable(struct timed_output_dev *iphone_vibrator_dev, int ti
 
 	if (timeout < 1) {
 		if (iphone_vibrator_last_timeout<0) {
-			timer_init(VibratorTimer, 0, 1, 0, 0, 0, 0, 1, 0, 0);
+			timer_init(VibratorTimer, 0, 1, 0, 0, 0, 0, 0, 1, 0);
 			timer_on_off(VibratorTimer, 1);
-			timer_init(VibratorTimer, 0, 1, 0, 0, 0, 0, 0, 0, 0);
 		} else {
 			timer_on_off(VibratorTimer, 0);
 		}
