@@ -15,9 +15,6 @@
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
- */
-
-/*
  * addons by Dario Russo, (turbominchiameister@gmail.com)
  * based on the work of Kalhan Trisal and Alan Cox
  */
@@ -73,7 +70,7 @@ static int iphone_accel_read(int *x, int *y, int *z) {
 
 /* Sysfs Files */
 static ssize_t power_mode_show(struct device *dev,
-                       struct device_attribute *attr, char *buf)
+		struct device_attribute *attr, char *buf)
 {
 	int val;
 
@@ -84,31 +81,31 @@ static ssize_t power_mode_show(struct device *dev,
 }
 
 static ssize_t power_mode_store(struct device *dev,
-               struct device_attribute *attr, const  char *buf, size_t count)
+		struct device_attribute *attr, const  char *buf, size_t count)
 {
-       unsigned int ret_val;
-       unsigned long val;
+	unsigned int ret_val;
+	unsigned long val;
 
-       if (strict_strtoul(buf, 10, &val))
-               return -EINVAL;
+	if (strict_strtoul(buf, 10, &val))
+		return -EINVAL;
 
-       mutex_lock(&accel_info->lock);
+	mutex_lock(&accel_info->lock);
 
-       ret_val = accel_read_reg( CTRL_REG1);
-       ret_val &= 0xBF;
+	ret_val = accel_read_reg( CTRL_REG1);
+	ret_val &= 0xBF;
 
-       switch(val) {
-       case 1:
-               ret_val |= CTRL_REG1_POWER_DOWN;
-       case 0:
-               accel_write_reg( CTRL_REG1, ret_val);
-               break;
-       default:
-               mutex_unlock(&accel_info->lock);
-               return -EINVAL;
-       }
-       mutex_unlock(&accel_info->lock);
-       return count;
+	switch(val) {
+		case 1:
+			ret_val |= CTRL_REG1_POWER_DOWN;
+		case 0:
+			accel_write_reg( CTRL_REG1, ret_val);
+			break;
+		default:
+			mutex_unlock(&accel_info->lock);
+			return -EINVAL;
+	}
+	mutex_unlock(&accel_info->lock);
+	return count;
 }
 
 
@@ -129,7 +126,7 @@ static void iphone_accel_input_poll(struct input_polled_dev *idev)
 	int x,y,z;
 	iphone_accel_read(&x,&y,&z);
 	input_report_abs(idev->input, ABS_X, x);
-#ifdef CONFIG_IPHONE_2G
+#ifdef CONFIG_IPHONE_2G || CONFIG_IPODTOUCH_1G
 	input_report_abs(idev->input, ABS_Y, -y);
 	input_report_abs(idev->input, ABS_Z, -z);
 #else
