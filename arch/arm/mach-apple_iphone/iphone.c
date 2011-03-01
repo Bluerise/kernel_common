@@ -1,12 +1,17 @@
 /*
- *  linux/arch/arm/mach-apple_iphone/iphone.c
+ * arch/arm/mach-apple_iphone/iphone.c - The base machine layout and functions.
  *
- *  Copyright (C) 2008 Yiduo Wang
+ * Copyright (C) 2008 Yiduo Wang
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * Portions Copyright (C) 2010 Ricky Taylor
+ *
+ * This file is part of iDroid. An android distribution for Apple products.
+ * For more information, please visit http://www.idroidproject.org/.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -15,7 +20,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <linux/init.h>
@@ -23,6 +28,7 @@
 #include <linux/sysdev.h>
 #include <linux/io.h>
 #include <linux/i2c.h>
+#include <linux/spi/spi.h>
 #include <linux/power_supply.h>
 #include <linux/pm.h>
 
@@ -282,6 +288,33 @@ static struct i2c_board_info __initdata iphone_i2c1[] = {
 #endif
 };
 
+static struct spi_board_info __initdata iphone_spi[] = {
+#ifdef CONFIG_IPHONE_3G
+	{
+		.bus_num = 0,
+		.controller_data = (void*)0x400,
+		.max_speed_hz = 12000000,
+		.mode = SPI_MODE_0,
+		.modalias = "iphone-nor",
+	},
+	// TODO: LCD SPI devices
+	{
+		.bus_num = 1,
+		.controller_data = (void*)0x1800,
+		.max_speed_hz = 4500000,
+		.mode = SPI_MODE_3,
+		.modalias = "zephyr2",
+	},
+	{
+		.bus_num = 2,
+		.controller_data = (void*)0x17021804, // MRDY/SRDY
+		.max_speed_hz = 12000000,
+		.mode = SPI_MODE_0,
+		.modalias = "iphone-baseband",
+	},
+#endif
+};
+
 void iphone_power_off(void)
 {
 #if POWER_PCF50633
@@ -292,9 +325,10 @@ void iphone_power_off(void)
 
 void __init iphone_init(void)
 {
+	printk("iphone: platform init\r\n");
+
 	pm_power_off = &iphone_power_off;
 
-	printk("iphone: platform init\r\n");
 	iphone_dma_setup();
 
 	iphone_init_suspend();
@@ -302,10 +336,20 @@ void __init iphone_init(void)
 	i2c_register_board_info(0, iphone_i2c0, ARRAY_SIZE(iphone_i2c0));
 	i2c_register_board_info(1, iphone_i2c1, ARRAY_SIZE(iphone_i2c1));
 
+	spi_register_board_info(iphone_spi, ARRAY_SIZE(iphone_spi));
+
 	platform_device_register(&iphone_dma);
 	platform_device_register(&iphone_nand);
 	platform_device_register(&iphone_i2c);
 }
+
+void __exit iphone_exit(void)
+{
+	platform_device_unregister(&iphone_i2c);
+	platform_device_unregister(&iphone_nand);
+	platform_device_unregister(&iphone_dma);
+}
+module_exit(iphone_exit);
 
 MACHINE_START(APPLE_IPHONE, "Apple iPhone")
 	/* Maintainer: iPhone Linux */
