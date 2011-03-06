@@ -136,26 +136,26 @@ const MTSPISetting MTFastSpeed = {4500000, 0, 10};
 #define NORMAL_SPEED (&MTNormalSpeed)
 #define FAST_SPEED (&MTFastSpeed)
 
-static int mt_txrx(struct zephyr_data *_mt, const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen);
-static int mt_tx(struct zephyr_data *_mt, const MTSPISetting* setting, const u8* outBuffer, int outLen);
+static int zephyr_txrx(struct zephyr_data *_z, const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen);
+static int zephyr_tx(struct zephyr_data *_z, const MTSPISetting* setting, const u8* outBuffer, int outLen);
 
 static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data, int dataLen, int* cksumOut);
-static bool verifyUpload(struct zephyr_data *_mt, int checksum);
-static void sendExecutePacket(struct zephyr_data *_mt);
-static void sendBlankDataPacket(struct zephyr_data *_mt);
+static bool verifyUpload(struct zephyr_data *_z, int checksum);
+static void sendExecutePacket(struct zephyr_data *_z);
+static void sendBlankDataPacket(struct zephyr_data *_z);
 
-static bool loadASpeedFirmware(struct zephyr_data *_mt, const u8* firmware, int len);
-static bool loadMainFirmware(struct zephyr_data *_mt, const u8* firmware, int len);
-static bool determineInterfaceVersion(struct zephyr_data *_mt);
+static bool loadASpeedFirmware(struct zephyr_data *_z, const u8* firmware, int len);
+static bool loadMainFirmware(struct zephyr_data *_z, const u8* firmware, int len);
+static bool determineInterfaceVersion(struct zephyr_data *_z);
 
-static bool getReportInfo(struct zephyr_data *_mt, int id, u8* err, u16* len);
-static bool getReport(struct zephyr_data *_mt, int id, u8* buffer, int* outLen);
+static bool getReportInfo(struct zephyr_data *_z, int id, u8* err, u16* len);
+static bool getReport(struct zephyr_data *_z, int id, u8* buffer, int* outLen);
 
-static bool readFrameLength(struct zephyr_data *_mt, int* len);
-static int readFrame(struct zephyr_data *_mt);
-static bool readResultData(struct zephyr_data *_mt, int len);
+static bool readFrameLength(struct zephyr_data *_z, int* len);
+static int readFrame(struct zephyr_data *_z);
+static bool readResultData(struct zephyr_data *_z, int len);
 
-static void newPacket(struct zephyr_data *_mt, const u8* data, int len);
+static void newPacket(struct zephyr_data *_z, const u8* data, int len);
 static void zephyr_irq_work(struct work_struct* work);
 
 u8* aspeed_fw;
@@ -165,7 +165,7 @@ size_t main_fw_size;
 
 DECLARE_WORK(zephyr_workqueue, &zephyr_irq_work);
 
-int zephyr_setup(struct zephyr_data *_mt, const u8* ASpeedFirmware, int ASpeedFirmwareLen, const u8* mainFirmware, int mainFirmwareLen)
+int zephyr_setup(struct zephyr_data *_z, const u8* ASpeedFirmware, int ASpeedFirmwareLen, const u8* mainFirmware, int mainFirmwareLen)
 {
 	int i;
 	int ret;
@@ -176,17 +176,17 @@ int zephyr_setup(struct zephyr_data *_mt, const u8* ASpeedFirmware, int ASpeedFi
 			(u32) ASpeedFirmware, (u32)(ASpeedFirmware + ASpeedFirmwareLen),
 			(u32) mainFirmware, (u32)(mainFirmware + mainFirmwareLen));
 
-	_mt->OutputPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
-	_mt->InputPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
-	_mt->GetInfoPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
-	_mt->GetResultPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	_z->OutputPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	_z->InputPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	_z->GetInfoPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
+	_z->GetResultPacket = (u8*) kmalloc(0x400, GFP_KERNEL);
 
-	memset(_mt->GetInfoPacket, 0x82, 0x400);
-	memset(_mt->GetResultPacket, 0x68, 0x400);
+	memset(_z->GetInfoPacket, 0x82, 0x400);
+	memset(_z->GetResultPacket, 0x68, 0x400);
 
 	if(request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, zephyr_irq, IRQF_TRIGGER_FALLING, "zephyr", (void*) 0))
 	{
-		printk("zephyr: Failed to request mt interrupt.\n");
+		printk("zephyr: Failed to request z interrupt.\n");
 	}
 
 	// Power up the device (turn it off then on again. ;])
@@ -198,219 +198,219 @@ int zephyr_setup(struct zephyr_data *_mt, const u8* ASpeedFirmware, int ASpeedFi
 	msleep(15);
 
 	printk("zephyr: Sending A-Speed firmware...\n");
-	if(!loadASpeedFirmware(_mt, ASpeedFirmware, ASpeedFirmwareLen))
+	if(!loadASpeedFirmware(_z, ASpeedFirmware, ASpeedFirmwareLen))
 	{
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
 		return -1;
 	}
 
 	msleep(1);
 
 	printk("zephyr: Sending main firmware...\n");
-	if(!loadMainFirmware(_mt, mainFirmware, mainFirmwareLen))
+	if(!loadMainFirmware(_z, mainFirmware, mainFirmwareLen))
 	{
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
 		return -1;
 	}
 
 	msleep(1);
 
 	printk("zephyr: Determining interface version...\n");
-	if(!determineInterfaceVersion(_mt))
+	if(!determineInterfaceVersion(_z))
 	{
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
 		return -1;
 	}
 
-	reportBuffer = (u8*) kmalloc(_mt->MaxPacketSize, GFP_KERNEL);
+	reportBuffer = (u8*) kmalloc(_z->MaxPacketSize, GFP_KERNEL);
 
-	if(!getReport(_mt, MT_INFO_FAMILYID, reportBuffer, &reportLen))
+	if(!getReport(_z, MT_INFO_FAMILYID, reportBuffer, &reportLen))
 	{
 		printk("zephyr: failed getting family id!\n");
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
 		return -1;
 	}
 
-	_mt->FamilyID = reportBuffer[0];
+	_z->FamilyID = reportBuffer[0];
 
-	if(!getReport(_mt, MT_INFO_SENSORINFO, reportBuffer, &reportLen))
+	if(!getReport(_z, MT_INFO_SENSORINFO, reportBuffer, &reportLen))
 	{
 		printk("zephyr: failed getting sensor info!\n");
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
 		return -1;
 	}
 
-	_mt->SensorColumns = reportBuffer[2];
-	_mt->SensorRows = reportBuffer[1];
-	_mt->BCDVersion = ((reportBuffer[3] & 0xFF) << 8) | (reportBuffer[4] & 0xFF);
-	_mt->Endianness = reportBuffer[0];
+	_z->SensorColumns = reportBuffer[2];
+	_z->SensorRows = reportBuffer[1];
+	_z->BCDVersion = ((reportBuffer[3] & 0xFF) << 8) | (reportBuffer[4] & 0xFF);
+	_z->Endianness = reportBuffer[0];
 
-	if(!getReport(_mt, MT_INFO_SENSORREGIONDESC, reportBuffer, &reportLen))
+	if(!getReport(_z, MT_INFO_SENSORREGIONDESC, reportBuffer, &reportLen))
 	{
 		printk("zephyr: failed getting sensor region descriptor!\n");
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
 		return -1;
 	}
 
-	_mt->SensorRegionDescriptorLen = reportLen;
-	_mt->SensorRegionDescriptor = (u8*) kmalloc(reportLen, GFP_KERNEL);
-	memcpy(_mt->SensorRegionDescriptor, reportBuffer, reportLen);
+	_z->SensorRegionDescriptorLen = reportLen;
+	_z->SensorRegionDescriptor = (u8*) kmalloc(reportLen, GFP_KERNEL);
+	memcpy(_z->SensorRegionDescriptor, reportBuffer, reportLen);
 
-	if(!getReport(_mt, MT_INFO_SENSORREGIONPARAM, reportBuffer, &reportLen))
+	if(!getReport(_z, MT_INFO_SENSORREGIONPARAM, reportBuffer, &reportLen))
 	{
 		printk("zephyr: failed getting sensor region param!\n");
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
-		kfree(_mt->SensorRegionDescriptor);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
+		kfree(_z->SensorRegionDescriptor);
 		return -1;
 	}
 
-	_mt->SensorRegionParamLen = reportLen;
-	_mt->SensorRegionParam = (u8*) kmalloc(reportLen, GFP_KERNEL);
-	memcpy(_mt->SensorRegionParam, reportBuffer, reportLen);
+	_z->SensorRegionParamLen = reportLen;
+	_z->SensorRegionParam = (u8*) kmalloc(reportLen, GFP_KERNEL);
+	memcpy(_z->SensorRegionParam, reportBuffer, reportLen);
 
-	if(!getReport(_mt, MT_INFO_SENSORDIM, reportBuffer, &reportLen))
+	if(!getReport(_z, MT_INFO_SENSORDIM, reportBuffer, &reportLen))
 	{
 		printk("zephyr: failed getting sensor surface dimensions!\n");
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
-		kfree(_mt->SensorRegionDescriptor);
-		kfree(_mt->SensorRegionParam);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
+		kfree(_z->SensorRegionDescriptor);
+		kfree(_z->SensorRegionParam);
 		return -1;
 	}
 
-	_mt->SensorWidth = (9000 - *((u32*)&reportBuffer[0])) * 84 / 73;
-	_mt->SensorHeight = (13850 - *((u32*)&reportBuffer[4])) * 84 / 73;
+	_z->SensorWidth = (9000 - *((u32*)&reportBuffer[0])) * 84 / 73;
+	_z->SensorHeight = (13850 - *((u32*)&reportBuffer[4])) * 84 / 73;
 
-	printk("Family ID                : 0x%x\n", _mt->FamilyID);
-	printk("Sensor rows              : 0x%x\n", _mt->SensorRows);
-	printk("Sensor columns           : 0x%x\n", _mt->SensorColumns);
-	printk("Sensor width             : 0x%x\n", _mt->SensorWidth);
-	printk("Sensor height            : 0x%x\n", _mt->SensorHeight);
-	printk("BCD Version              : 0x%x\n", _mt->BCDVersion);
-	printk("Endianness               : 0x%x\n", _mt->Endianness);
+	printk("Family ID                : 0x%x\n", _z->FamilyID);
+	printk("Sensor rows              : 0x%x\n", _z->SensorRows);
+	printk("Sensor columns           : 0x%x\n", _z->SensorColumns);
+	printk("Sensor width             : 0x%x\n", _z->SensorWidth);
+	printk("Sensor height            : 0x%x\n", _z->SensorHeight);
+	printk("BCD Version              : 0x%x\n", _z->BCDVersion);
+	printk("Endianness               : 0x%x\n", _z->Endianness);
 	printk("Sensor region descriptor :");
-	for(i = 0; i < _mt->SensorRegionDescriptorLen; ++i)
-		printk(" %02x", _mt->SensorRegionDescriptor[i]);
+	for(i = 0; i < _z->SensorRegionDescriptorLen; ++i)
+		printk(" %02x", _z->SensorRegionDescriptor[i]);
 	printk("\n");
 
 	printk("Sensor region param      :");
-	for(i = 0; i < _mt->SensorRegionParamLen; ++i)
-		printk(" %02x", _mt->SensorRegionParam[i]);
+	for(i = 0; i < _z->SensorRegionParamLen; ++i)
+		printk(" %02x", _z->SensorRegionParam[i]);
 	printk("\n");
 
 	kfree(reportBuffer);
 
-	_mt->input_dev = input_allocate_device();
-	if(!_mt->input_dev)
+	_z->input_dev = input_allocate_device();
+	if(!_z->input_dev)
 	{
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
-		kfree(_mt->SensorRegionDescriptor);
-		kfree(_mt->SensorRegionParam);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
+		kfree(_z->SensorRegionDescriptor);
+		kfree(_z->SensorRegionParam);
 		return -1;
 	}
 
 
-	_mt->input_dev->name = "iPhone Zephyr Multitouch Screen";
-	_mt->input_dev->phys = "multitouch0";
-	_mt->input_dev->id.vendor = 0x05AC;
-	_mt->input_dev->id.product = 0;
-	_mt->input_dev->id.version = 0x0000;
-	_mt->input_dev->dev.parent = &_mt->spi_dev->dev;
-	_mt->input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
-	_mt->input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
-	input_set_abs_params(_mt->input_dev, ABS_X, 0, _mt->SensorWidth, 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_Y, 0, _mt->SensorHeight, 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_TOUCH_MAJOR, 0, max(_mt->SensorHeight, _mt->SensorWidth), 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_TOUCH_MINOR, 0, max(_mt->SensorHeight, _mt->SensorWidth), 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_WIDTH_MAJOR, 0, max(_mt->SensorHeight, _mt->SensorWidth), 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_WIDTH_MINOR, 0, max(_mt->SensorHeight, _mt->SensorWidth), 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_ORIENTATION, -MAX_FINGER_ORIENTATION, MAX_FINGER_ORIENTATION, 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_POSITION_X, 0, _mt->SensorWidth, 0, 0);
-	input_set_abs_params(_mt->input_dev, ABS_MT_POSITION_Y, 0, _mt->SensorHeight, 0, 0);
+	_z->input_dev->name = "iPhone Zephyr Multitouch Screen";
+	_z->input_dev->phys = "multitouch0";
+	_z->input_dev->id.vendor = 0x05AC;
+	_z->input_dev->id.product = 0;
+	_z->input_dev->id.version = 0x0000;
+	_z->input_dev->dev.parent = &_z->spi_dev->dev;
+	_z->input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
+	_z->input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
+	input_set_abs_params(_z->input_dev, ABS_X, 0, _z->SensorWidth, 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_Y, 0, _z->SensorHeight, 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_TOUCH_MAJOR, 0, max(_z->SensorHeight, _z->SensorWidth), 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_TOUCH_MINOR, 0, max(_z->SensorHeight, _z->SensorWidth), 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_WIDTH_MAJOR, 0, max(_z->SensorHeight, _z->SensorWidth), 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_WIDTH_MINOR, 0, max(_z->SensorHeight, _z->SensorWidth), 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_ORIENTATION, -MAX_FINGER_ORIENTATION, MAX_FINGER_ORIENTATION, 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_POSITION_X, 0, _z->SensorWidth, 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_POSITION_Y, 0, _z->SensorHeight, 0, 0);
 
 	/* not sure what the actual max is */
-	input_set_abs_params(_mt->input_dev, ABS_MT_TRACKING_ID, 0, 32, 0, 0);
+	input_set_abs_params(_z->input_dev, ABS_MT_TRACKING_ID, 0, 32, 0, 0);
 
-	ret = input_register_device(_mt->input_dev);
+	ret = input_register_device(_z->input_dev);
 	if(ret != 0)
 	{
-		kfree(_mt->InputPacket);
-		kfree(_mt->OutputPacket);
-		kfree(_mt->GetInfoPacket);
-		kfree(_mt->GetResultPacket);
-		kfree(_mt->SensorRegionDescriptor);
-		kfree(_mt->SensorRegionParam);
+		kfree(_z->InputPacket);
+		kfree(_z->OutputPacket);
+		kfree(_z->GetInfoPacket);
+		kfree(_z->GetResultPacket);
+		kfree(_z->SensorRegionDescriptor);
+		kfree(_z->SensorRegionParam);
 		return -1;
 	}
 
-	_mt->CurNOP = 0x64;
-	_mt->irq_count = 0;
+	_z->CurNOP = 0x64;
+	_z->irq_count = 0;
 
-	_mt->firmware_loaded = true;
+	_z->firmware_loaded = true;
 
-	readFrame(_mt);
+	readFrame(_z);
 
 	return 0;
 }
 
 static void zephyr_irq_work(struct work_struct* work)
 {
-	struct zephyr_data *mt = container_of(work, struct zephyr_data, irq_work);
+	struct zephyr_data *z = container_of(work, struct zephyr_data, irq_work);
 	unsigned long flags;
 
-	dev_dbg(&mt->spi_dev->dev, "irq entered (%d).\n", mt->irq_count);
+	dev_dbg(&z->spi_dev->dev, "irq entered (%d).\n", z->irq_count);
 
-	spin_lock_irqsave(&mt->irq_lock, flags);
+	spin_lock_irqsave(&z->irq_lock, flags);
 
-	mt->irq_count++;
+	z->irq_count++;
 
-	if(mt->irq_count > 1)
+	if(z->irq_count > 1)
 	{
-		spin_unlock_irqrestore(&mt->irq_lock, flags);
+		spin_unlock_irqrestore(&z->irq_lock, flags);
 		return;
 	}
 
-	while(mt->irq_count > 0)
+	while(z->irq_count > 0)
 	{
-		spin_unlock_irqrestore(&mt->irq_lock, flags);
+		spin_unlock_irqrestore(&z->irq_lock, flags);
 
-		readFrame(mt);
+		readFrame(z);
 
-		spin_lock_irqsave(&mt->irq_lock, flags);
-		mt->irq_count--;
+		spin_lock_irqsave(&z->irq_lock, flags);
+		z->irq_count--;
 	}
-	spin_unlock_irqrestore(&mt->irq_lock, flags);
+	spin_unlock_irqrestore(&z->irq_lock, flags);
 
-	dev_dbg(&mt->spi_dev->dev, "irq exited (%d).\n", mt->irq_count);
+	dev_dbg(&z->spi_dev->dev, "irq exited (%d).\n", z->irq_count);
 }
 
-static void newPacket(struct zephyr_data *_mt, const u8* data, int len)
+static void newPacket(struct zephyr_data *_z, const u8* data, int len)
 {
 	int i;
 	FingerData* finger;
@@ -425,16 +425,16 @@ static void newPacket(struct zephyr_data *_mt, const u8* data, int len)
 
 	for(i = 0; i < header->numFingers; ++i)
 	{
-		if(finger->force_major > _mt->min_pressure)
+		if(finger->force_major > _z->min_pressure)
 		{
-			finger->force_major -= _mt->min_pressure;
+			finger->force_major -= _z->min_pressure;
 		}
 		else
 			finger->force_major = 0;
 
-		if(finger->force_minor > _mt->min_pressure)
+		if(finger->force_minor > _z->min_pressure)
 		{
-			finger->force_minor -= _mt->min_pressure;
+			finger->force_minor -= _z->min_pressure;
 		}
 		else 
 			finger->force_minor = 0;
@@ -442,17 +442,17 @@ static void newPacket(struct zephyr_data *_mt, const u8* data, int len)
 		if(finger->force_major > 0 || 
 				finger->force_minor > 0)
 		{
-			input_report_abs(_mt->input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
-			input_report_abs(_mt->input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
-			input_report_abs(_mt->input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
-			input_report_abs(_mt->input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
-			input_report_abs(_mt->input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
-			input_report_abs(_mt->input_dev, ABS_MT_TRACKING_ID, finger->id);
-			input_report_abs(_mt->input_dev, ABS_MT_POSITION_X, finger->x);
-			input_report_abs(_mt->input_dev, ABS_MT_POSITION_Y, _mt->SensorHeight - finger->y);
+			input_report_abs(_z->input_dev, ABS_MT_TOUCH_MAJOR, finger->force_major);
+			input_report_abs(_z->input_dev, ABS_MT_TOUCH_MINOR, finger->force_minor);
+			input_report_abs(_z->input_dev, ABS_MT_WIDTH_MAJOR, finger->size_major);
+			input_report_abs(_z->input_dev, ABS_MT_WIDTH_MINOR, finger->size_minor);
+			input_report_abs(_z->input_dev, ABS_MT_ORIENTATION, MAX_FINGER_ORIENTATION - finger->orientation);
+			input_report_abs(_z->input_dev, ABS_MT_TRACKING_ID, finger->id);
+			input_report_abs(_z->input_dev, ABS_MT_POSITION_X, finger->x);
+			input_report_abs(_z->input_dev, ABS_MT_POSITION_Y, _z->SensorHeight - finger->y);
 		}
 
-		input_mt_sync(_mt->input_dev);
+		input_mt_sync(_z->input_dev);
 
 		finger = (FingerData*) (((u8*) finger) + header->fingerDataLen);
 	}
@@ -463,24 +463,24 @@ static void newPacket(struct zephyr_data *_mt, const u8* data, int len)
 
 		if (finger->force_minor > 0)
 		{
-			input_report_abs(_mt->input_dev, ABS_X, finger->x);
-			input_report_abs(_mt->input_dev, ABS_Y, _mt->SensorHeight - finger->y);
-			input_report_key(_mt->input_dev, BTN_TOUCH, finger->size_minor > 0);
+			input_report_abs(_z->input_dev, ABS_X, finger->x);
+			input_report_abs(_z->input_dev, ABS_Y, _z->SensorHeight - finger->y);
+			input_report_key(_z->input_dev, BTN_TOUCH, finger->size_minor > 0);
 		}
-		else input_report_key(_mt->input_dev, BTN_TOUCH, 0);
+		else input_report_key(_z->input_dev, BTN_TOUCH, 0);
 	}
 
-	input_sync(_mt->input_dev);
+	input_sync(_z->input_dev);
 }
 
-static int readFrame(struct zephyr_data *_mt)
+static int readFrame(struct zephyr_data *_z)
 {
 	int try = 0;
 
 	for(try = 0; try < 4; ++try)
 	{
 		int len = 0;
-		if(!readFrameLength(_mt, &len))
+		if(!readFrameLength(_z, &len))
 		{
 			printk("zephyr: error getting frame length\n");
 			msleep(1);
@@ -489,17 +489,17 @@ static int readFrame(struct zephyr_data *_mt)
 
 		if(len)
 		{
-			if(!readResultData(_mt, len + 1))
+			if(!readResultData(_z, len + 1))
 			{
 				printk("zephyr: error getting frame data\n");
 				msleep(1);
 				continue;
 			}
 
-			if(_mt->CurNOP == 0x64)
-				_mt->CurNOP = 0x65;
+			if(_z->CurNOP == 0x64)
+				_z->CurNOP = 0x65;
 			else
-				_mt->CurNOP = 0x64;
+				_z->CurNOP = 0x64;
 
 			return 1;
 		}
@@ -510,7 +510,7 @@ static int readFrame(struct zephyr_data *_mt)
 	return -1;
 }
 
-static bool readResultData(struct zephyr_data *_mt, int len)
+static bool readResultData(struct zephyr_data *_z, int len)
 {
 	int try = 0;
 	for(try = 0; try < 4; ++try)
@@ -519,19 +519,19 @@ static bool readResultData(struct zephyr_data *_mt, int len)
 		int myChecksum;
 		int i;
 
-		mt_txrx(_mt, NORMAL_SPEED, _mt->GetResultPacket, len, _mt->InputPacket, len);
+		zephyr_txrx(_z, NORMAL_SPEED, _z->GetResultPacket, len, _z->InputPacket, len);
 
-		if(_mt->InputPacket[0] != 0xAA)
+		if(_z->InputPacket[0] != 0xAA)
 		{
 			msleep(1);
 			continue;
 		}
 
-		checksum = ((_mt->InputPacket[len - 2] & 0xFF) << 8) | (_mt->InputPacket[len - 1] & 0xFF);
+		checksum = ((_z->InputPacket[len - 2] & 0xFF) << 8) | (_z->InputPacket[len - 1] & 0xFF);
 		myChecksum = 0;
 
 		for(i = 1; i < (len - 2); ++i)
-			myChecksum += _mt->InputPacket[i];
+			myChecksum += _z->InputPacket[i];
 
 		myChecksum &= 0xFFFF;
 
@@ -541,7 +541,7 @@ static bool readResultData(struct zephyr_data *_mt, int len)
 			continue;
 		}
 
-		newPacket(_mt, _mt->InputPacket + 1, len - 3);
+		newPacket(_z, _z->InputPacket + 1, len - 3);
 		return true;
 	}
 
@@ -549,12 +549,12 @@ static bool readResultData(struct zephyr_data *_mt, int len)
 
 }
 
-static bool readFrameLength(struct zephyr_data *_mt, int* len)
+static bool readFrameLength(struct zephyr_data *_z, int* len)
 {
 	int try;
 	u8 tx[8];
 	u8 rx[8];
-	memset(tx, _mt->CurNOP, sizeof(tx));
+	memset(tx, _z->CurNOP, sizeof(tx));
 
 	try = 0;
 	for(try = 0; try < 4; ++try)
@@ -563,7 +563,7 @@ static bool readFrameLength(struct zephyr_data *_mt, int* len)
 		int tLenCkSum;
 		int checksum;
 
-		mt_txrx(_mt, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+		zephyr_txrx(_z, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 		if(rx[0] != 0xAA)
 		{
@@ -580,9 +580,9 @@ static bool readFrameLength(struct zephyr_data *_mt, int* len)
 			continue;
 		}
 
-		if(tLen > _mt->MaxPacketSize)
+		if(tLen > _z->MaxPacketSize)
 		{
-			printk("zephyr: device unexpectedly requested to transfer a %d byte packet. Max size = %d\n", tLen, _mt->MaxPacketSize);
+			printk("zephyr: device unexpectedly requested to transfer a %d byte packet. Max size = %d\n", tLen, _z->MaxPacketSize);
 			msleep(1);
 			continue;
 		}
@@ -595,12 +595,12 @@ static bool readFrameLength(struct zephyr_data *_mt, int* len)
 	return false;
 }
 
-static bool getReport(struct zephyr_data *_mt, int id, u8* buffer, int* outLen)
+static bool getReport(struct zephyr_data *_z, int id, u8* buffer, int* outLen)
 {
 	u8 err;
 	u16 len;
 	int try;
-	if(!getReportInfo(_mt, id, &err, &len))
+	if(!getReportInfo(_z, id, &err, &len))
 		return false;
 
 	if(err)
@@ -613,20 +613,20 @@ static bool getReport(struct zephyr_data *_mt, int id, u8* buffer, int* outLen)
 		int myChecksum;
 		int i;
 
-		_mt->GetInfoPacket[1] = id;
-		mt_txrx(_mt, NORMAL_SPEED, _mt->GetInfoPacket, len + 6, _mt->InputPacket, len + 6);
+		_z->GetInfoPacket[1] = id;
+		zephyr_txrx(_z, NORMAL_SPEED, _z->GetInfoPacket, len + 6, _z->InputPacket, len + 6);
 
-		if(_mt->InputPacket[0] != 0xAA)
+		if(_z->InputPacket[0] != 0xAA)
 		{
 			msleep(1);
 			continue;
 		}
 
-		checksum = ((_mt->InputPacket[len + 4] & 0xFF) << 8) | (_mt->InputPacket[len + 5] & 0xFF);
+		checksum = ((_z->InputPacket[len + 4] & 0xFF) << 8) | (_z->InputPacket[len + 5] & 0xFF);
 		myChecksum = id;
 
 		for(i = 0; i < len; ++i)
-			myChecksum += _mt->InputPacket[i + 4];
+			myChecksum += _z->InputPacket[i + 4];
 
 		myChecksum &= 0xFFFF;
 
@@ -637,7 +637,7 @@ static bool getReport(struct zephyr_data *_mt, int id, u8* buffer, int* outLen)
 		}
 
 		*outLen = len;
-		memcpy(buffer, &_mt->InputPacket[4], len);
+		memcpy(buffer, &_z->InputPacket[4], len);
 
 		return true;
 	}
@@ -645,7 +645,7 @@ static bool getReport(struct zephyr_data *_mt, int id, u8* buffer, int* outLen)
 	return false;
 }
 
-static bool getReportInfo(struct zephyr_data *_mt, int id, u8* err, u16* len)
+static bool getReportInfo(struct zephyr_data *_z, int id, u8* err, u16* len)
 {
 	u8 tx[8];
 	u8 rx[8];
@@ -659,7 +659,7 @@ static bool getReportInfo(struct zephyr_data *_mt, int id, u8* err, u16* len)
 		memset(tx, 0x8F, 8);
 		tx[1] = id;
 
-		mt_txrx(_mt, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+		zephyr_txrx(_z, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 		if(rx[0] != 0xAA)
 		{
@@ -685,7 +685,7 @@ static bool getReportInfo(struct zephyr_data *_mt, int id, u8* err, u16* len)
 	return false;
 }
 
-static bool determineInterfaceVersion(struct zephyr_data *_mt)
+static bool determineInterfaceVersion(struct zephyr_data *_z)
 {
 	u8 tx[4];
 	u8 rx[4];
@@ -695,19 +695,19 @@ static bool determineInterfaceVersion(struct zephyr_data *_mt)
 	{
 		memset(tx, 0xD0, 4);
 
-		mt_txrx(_mt, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+		zephyr_txrx(_z, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 		if(rx[0] == 0xAA)
 		{
-			_mt->InterfaceVersion = rx[1];
-			_mt->MaxPacketSize = (rx[2] << 8) | rx[3];
+			_z->InterfaceVersion = rx[1];
+			_z->MaxPacketSize = (rx[2] << 8) | rx[3];
 
-			printk("zephyr: interface version %d, max packet size: %d\n", _mt->InterfaceVersion, _mt->MaxPacketSize);
+			printk("zephyr: interface version %d, max packet size: %d\n", _z->InterfaceVersion, _z->MaxPacketSize);
 			return true;
 		}
 
-		_mt->InterfaceVersion = 0;
-		_mt->MaxPacketSize = 1000;
+		_z->InterfaceVersion = 0;
+		_z->MaxPacketSize = 1000;
 		msleep(3);
 	}
 
@@ -716,7 +716,7 @@ static bool determineInterfaceVersion(struct zephyr_data *_mt)
 	return false;
 }
 
-static bool loadASpeedFirmware(struct zephyr_data *_mt, const u8* firmware, int len)
+static bool loadASpeedFirmware(struct zephyr_data *_z, const u8* firmware, int len)
 {
 	u32 address = 0x40000000;
 	const u8* data = firmware;
@@ -730,16 +730,16 @@ static bool loadASpeedFirmware(struct zephyr_data *_mt, const u8* firmware, int 
 		if(toUpload > 0x3F8)
 			toUpload = 0x3F8;
 
-		makeBootloaderDataPacket(_mt->OutputPacket, address, data, toUpload, &checksum);
+		makeBootloaderDataPacket(_z->OutputPacket, address, data, toUpload, &checksum);
 
 		for(try = 0; try < 5; ++try)
 		{
 			printk("zephyr: uploading data packet\n");
-			mt_tx(_mt, NORMAL_SPEED, _mt->OutputPacket, 0x400);
+			zephyr_tx(_z, NORMAL_SPEED, _z->OutputPacket, 0x400);
 
 			udelay(300);
 
-			if(verifyUpload(_mt, checksum))
+			if(verifyUpload(_z, checksum))
 				break;
 		}
 
@@ -751,12 +751,12 @@ static bool loadASpeedFirmware(struct zephyr_data *_mt, const u8* firmware, int 
 		left -= toUpload;
 	}
 
-	sendExecutePacket(_mt);
+	sendExecutePacket(_z);
 
 	return true;
 }
 
-static bool loadMainFirmware(struct zephyr_data *_mt, const u8* firmware, int len)
+static bool loadMainFirmware(struct zephyr_data *_z, const u8* firmware, int len)
 {
 	int checksum = 0;
 
@@ -766,24 +766,24 @@ static bool loadMainFirmware(struct zephyr_data *_mt, const u8* firmware, int le
 
 	for(i = 0; i < 5; ++i)
 	{
-		sendBlankDataPacket(_mt);
+		sendBlankDataPacket(_z);
 
 		printk("zephyr: uploading main firmware\n");
-		mt_tx(_mt, FAST_SPEED, firmware, len);
+		zephyr_tx(_z, FAST_SPEED, firmware, len);
 
-		if(verifyUpload(_mt, checksum))
+		if(verifyUpload(_z, checksum))
 			break;
 	}
 
 	if(i == 5)
 		return false;
 
-	sendExecutePacket(_mt);
+	sendExecutePacket(_z);
 
 	return true;
 }
 
-static bool verifyUpload(struct zephyr_data *_mt, int checksum)
+static bool verifyUpload(struct zephyr_data *_z, int checksum)
 {
 	u8 tx[4];
 	u8 rx[4];
@@ -793,7 +793,7 @@ static bool verifyUpload(struct zephyr_data *_mt, int checksum)
 	tx[2] = 0;
 	tx[3] = 6;
 
-	mt_txrx(_mt, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	zephyr_txrx(_z, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 	if(rx[0] != 0xD0 || rx[1] != 0x0)
 	{
@@ -818,7 +818,7 @@ static bool verifyUpload(struct zephyr_data *_mt, int checksum)
 }
 
 
-static void sendExecutePacket(struct zephyr_data *_mt)
+static void sendExecutePacket(struct zephyr_data *_z)
 {
 	u8 tx[4];
 	u8 rx[4];
@@ -828,12 +828,12 @@ static void sendExecutePacket(struct zephyr_data *_mt)
 	tx[2] = 0;
 	tx[3] = 0xC4;
 
-	mt_txrx(_mt, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	zephyr_txrx(_z, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 	printk("zephyr: execute packet sent\n");
 }
 
-static void sendBlankDataPacket(struct zephyr_data *_mt)
+static void sendBlankDataPacket(struct zephyr_data *_z)
 {
 	u8 tx[4];
 	u8 rx[4];
@@ -843,7 +843,7 @@ static void sendBlankDataPacket(struct zephyr_data *_mt)
 	tx[2] = 0;
 	tx[3] = 0;
 
-	mt_txrx(_mt, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
+	zephyr_txrx(_z, NORMAL_SPEED, tx, sizeof(tx), rx, sizeof(rx));
 
 	printk("zephyr: blank data packet sent\n");
 }
@@ -888,12 +888,12 @@ static int makeBootloaderDataPacket(u8* output, u32 destAddress, const u8* data,
 
 static irqreturn_t zephyr_irq(int irq, void* pToken)
 {
-	struct zephyr_data *mt = (struct zephyr_data *)pToken;
+	struct zephyr_data *z = (struct zephyr_data *)pToken;
 
-	if(!mt->firmware_loaded)
+	if(!z->firmware_loaded)
 		return IRQ_HANDLED;
 
-	dev_dbg(&mt->spi_dev->dev, "irq.\n");
+	dev_dbg(&z->spi_dev->dev, "irq.\n");
 
 	schedule_work(&zephyr_workqueue);
 
@@ -901,7 +901,7 @@ static irqreturn_t zephyr_irq(int irq, void* pToken)
 }
 
 
-int mt_tx(struct zephyr_data *_mt, const MTSPISetting* setting, const u8* outBuffer, int outLen)
+int zephyr_tx(struct zephyr_data *_z, const MTSPISetting* setting, const u8* outBuffer, int outLen)
 {
 	int ret;
 	struct spi_transfer tx = {
@@ -915,14 +915,14 @@ int mt_tx(struct zephyr_data *_mt, const MTSPISetting* setting, const u8* outBuf
 	spi_message_init(&msg);
 	spi_message_add_tail(&tx, &msg);
 
-	ret = spi_sync(_mt->spi_dev, &msg);
+	ret = spi_sync(_z->spi_dev, &msg);
 	if(ret != 0)
-		dev_err(&_mt->spi_dev->dev, "tx failed (%d).\n", ret);
+		dev_err(&_z->spi_dev->dev, "tx failed (%d).\n", ret);
 	return ret;
 
 }
 
-int mt_txrx(struct zephyr_data *_mt, const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen)
+int zephyr_txrx(struct zephyr_data *_z, const MTSPISetting* setting, const u8* outBuffer, int outLen, u8* inBuffer, int inLen)
 {
 	int ret;
 	int sz = (outLen > inLen) ? outLen : inLen;
@@ -939,19 +939,19 @@ int mt_txrx(struct zephyr_data *_mt, const MTSPISetting* setting, const u8* outB
 	spi_message_init(&msg);
 	spi_message_add_tail(&tx, &msg);
 
-	ret = spi_sync(_mt->spi_dev, &msg);
+	ret = spi_sync(_z->spi_dev, &msg);
 	if(ret != 0)
-		dev_err(&_mt->spi_dev->dev, "tx failed (%d).\n", ret);
+		dev_err(&_z->spi_dev->dev, "tx failed (%d).\n", ret);
 	return ret;
 }
 
 static void got_main(const struct firmware* fw, void *context)
 {
-	struct zephyr_data *mt = (struct zephyr_data *)context;
+	struct zephyr_data *z = (struct zephyr_data *)context;
 	if(!fw)
 	{
 		printk("zephyr: couldn't get main firmware, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &mt->spi_dev->dev, NULL, got_main);
+		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &z->spi_dev->dev, NULL, got_main);
 		return;
 	}
 
@@ -960,18 +960,18 @@ static void got_main(const struct firmware* fw, void *context)
 	memcpy(main_fw, fw->data, fw->size);
 
 	printk("zephyr: initializing multitouch\n");
-	zephyr_setup(mt, aspeed_fw, aspeed_fw_size, main_fw, main_fw_size);
+	zephyr_setup(z, aspeed_fw, aspeed_fw_size, main_fw, main_fw_size);
 
 	/* caller will call release_firmware */
 }
 
 static void got_aspeed(const struct firmware* fw, void *context)
 {
-	struct zephyr_data *mt = (struct zephyr_data *)context;
+	struct zephyr_data *z = (struct zephyr_data *)context;
 	if(!fw)
 	{
 		printk("zephyr: couldn't get a-speed firmware, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &mt->spi_dev->dev, NULL, got_aspeed);
+		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &z->spi_dev->dev, NULL, got_aspeed);
 		return;
 	}
 
@@ -980,7 +980,7 @@ static void got_aspeed(const struct firmware* fw, void *context)
 	memcpy(aspeed_fw, fw->data, fw->size);
 
 	printk("zephyr: requesting main firmware\n");
-	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &mt->spi_dev->dev, NULL, got_main);
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &z->spi_dev->dev, NULL, got_main);
 
 	/* caller will call release_firmware */
 }
@@ -989,15 +989,15 @@ static void got_aspeed(const struct firmware* fw, void *context)
 static ssize_t zephyr_min_pressure_show(struct device *_dev, struct device_attribute *_attr, char *_buf)
 {
 	struct spi_device *spi_dev = container_of(_dev, struct spi_device, dev);
-	struct zephyr_data *mt = (struct zephyr_data*)spi_get_drvdata(spi_dev);
+	struct zephyr_data *z = (struct zephyr_data*)spi_get_drvdata(spi_dev);
 
-	return sprintf(_buf, "%u\n", (unsigned int)mt->min_pressure);
+	return sprintf(_buf, "%u\n", (unsigned int)z->min_pressure);
 }
 
 static ssize_t zephyr_min_pressure_store(struct device *_dev, struct device_attribute *_attr, const char* _buf, size_t _count)
 {
 	struct spi_device *spi_dev = container_of(_dev, struct spi_device, dev);
-	struct zephyr_data *mt = (struct zephyr_data*)spi_get_drvdata(spi_dev);
+	struct zephyr_data *z = (struct zephyr_data*)spi_get_drvdata(spi_dev);
 
 	unsigned int new_val;
 	ssize_t ret = sscanf(_buf, "%u\n", &new_val);
@@ -1008,7 +1008,7 @@ static ssize_t zephyr_min_pressure_store(struct device *_dev, struct device_attr
 	if(new_val >= 255)
 		return 0;
 
-	mt->min_pressure = (u8)new_val;
+	z->min_pressure = (u8)new_val;
 
 	return ret;
 }
@@ -1019,10 +1019,10 @@ static DEVICE_ATTR(min_pressure, 0666, &zephyr_min_pressure_show, &zephyr_min_pr
 static int zephyr_probe(struct spi_device *_dev)
 {
 	int ret;
-	struct zephyr_data *mt = (struct zephyr_data *)kmalloc(sizeof(struct zephyr_data), GFP_KERNEL);
-	memset(mt, sizeof(struct zephyr_data), 0);
+	struct zephyr_data *z = (struct zephyr_data *)kmalloc(sizeof(struct zephyr_data), GFP_KERNEL);
+	memset(z, sizeof(struct zephyr_data), 0);
 
-	spi_set_drvdata(_dev, mt);
+	spi_set_drvdata(_dev, z);
 	_dev->bits_per_word = 8;
 	ret = spi_setup(_dev);
 	if(ret)
@@ -1031,19 +1031,19 @@ static int zephyr_probe(struct spi_device *_dev)
 		return ret;
 	}
 
-	INIT_WORK(&mt->irq_work, &zephyr_irq_work);
-	spin_lock_init(&mt->irq_lock);
-	mt->firmware_loaded = false;
-	mt->spi_dev = _dev;
-	mt->min_pressure = 100;
-	mt->irq_count = 0;
+	INIT_WORK(&z->irq_work, &zephyr_irq_work);
+	spin_lock_init(&z->irq_lock);
+	z->firmware_loaded = false;
+	z->spi_dev = _dev;
+	z->min_pressure = 100;
+	z->irq_count = 0;
 
 	ret = device_create_file(&_dev->dev, &dev_attr_min_pressure);
 	if(ret)
 		dev_err(&_dev->dev, "failed to create min_pressure attribute.\n");
 
 	printk("zephyr: requesting A-Speed firmware\n");
-	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &mt->spi_dev->dev, NULL, got_aspeed);
+	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &z->spi_dev->dev, NULL, got_aspeed);
 }
 
 static int zephyr_remove(struct spi_device *_dev)
