@@ -11,13 +11,15 @@ menuconfig INPUT_TOUCHSCREEN
 
 if INPUT_TOUCHSCREEN
 
-config TOUCHSCREEN_APPLE_IPHONE
+config TOUCHSCREEN_APPLE_ZEPHYR
 	tristate "Apple iPhone Zephyr TouchScreen (iPhone 2G)"
 	depends on MACH_APPLE_IPHONE
+	depends on SPI
 
 config TOUCHSCREEN_APPLE_ZEPHYR2
 	tristate "Apple iPhone Zephyr2 TouchScreen (iPhone 3G+)"
 	depends on MACH_APPLE_IPHONE
+	depends on SPI
 
 config TOUCHSCREEN_ADS7846
 	tristate "ADS7846/TSC2046 and ADS7843 based touchscreens"
