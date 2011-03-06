@@ -184,7 +184,7 @@ int zephyr_setup(struct zephyr_data *_z, const u8* ASpeedFirmware, int ASpeedFir
 	memset(_z->GetInfoPacket, 0x82, 0x400);
 	memset(_z->GetResultPacket, 0x68, 0x400);
 
-	if(request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, zephyr_irq, IRQF_TRIGGER_FALLING, "zephyr", (void*) 0))
+	if(request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, zephyr_irq, IRQF_TRIGGER_FALLING, "zephyr", _z))
 	{
 		printk("zephyr: Failed to request z interrupt.\n");
 	}
@@ -951,7 +951,7 @@ static void got_main(const struct firmware* fw, void *context)
 	if(!fw)
 	{
 		printk("zephyr: couldn't get main firmware, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &z->spi_dev->dev, NULL, got_main);
+		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &z->spi_dev->dev, z, got_main);
 		return;
 	}
 
@@ -968,10 +968,11 @@ static void got_main(const struct firmware* fw, void *context)
 static void got_aspeed(const struct firmware* fw, void *context)
 {
 	struct zephyr_data *z = (struct zephyr_data *)context;
+
 	if(!fw)
 	{
 		printk("zephyr: couldn't get a-speed firmware, trying again...\n");
-		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &z->spi_dev->dev, NULL, got_aspeed);
+		request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &z->spi_dev->dev, z, got_aspeed);
 		return;
 	}
 
@@ -980,7 +981,7 @@ static void got_aspeed(const struct firmware* fw, void *context)
 	memcpy(aspeed_fw, fw->data, fw->size);
 
 	printk("zephyr: requesting main firmware\n");
-	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &z->spi_dev->dev, NULL, got_main);
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_main.bin", &z->spi_dev->dev, z, got_main);
 
 	/* caller will call release_firmware */
 }
@@ -1021,8 +1022,8 @@ static int zephyr_probe(struct spi_device *_dev)
 	int ret;
 	struct zephyr_data *z = (struct zephyr_data *)kmalloc(sizeof(struct zephyr_data), GFP_KERNEL);
 	memset(z, sizeof(struct zephyr_data), 0);
-
 	spi_set_drvdata(_dev, z);
+
 	_dev->bits_per_word = 8;
 	ret = spi_setup(_dev);
 	if(ret)
@@ -1042,8 +1043,8 @@ static int zephyr_probe(struct spi_device *_dev)
 	if(ret)
 		dev_err(&_dev->dev, "failed to create min_pressure attribute.\n");
 
-	printk("zephyr: requesting A-Speed firmware\n");
-	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &z->spi_dev->dev, NULL, got_aspeed);
+	dev_info(&_dev->dev, "requesting A-Speed firmware\n");
+	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG, "zephyr_aspeed.bin", &_dev->dev, z, got_aspeed);
 }
 
 static int zephyr_remove(struct spi_device *_dev)

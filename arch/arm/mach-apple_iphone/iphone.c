@@ -292,7 +292,7 @@ static struct spi_board_info __initdata iphone_spi[] = {
 #ifdef CONFIG_IPHONE_2G
 	{
 		.bus_num = 2,
-		.controller_data = (void*)0x1800,
+		.controller_data = (void*)0x705,
 		.max_speed_hz = 4500000,
 		.mode = SPI_MODE_3,
 		.modalias = "zephyr",
