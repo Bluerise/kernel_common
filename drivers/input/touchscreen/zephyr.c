@@ -19,19 +19,19 @@
 #include <mach/gpio.h>
 
 #ifdef CONFIG_IPHONE_2G
-#define MT_GPIO_POWER 0x804
-#define MT_ATN_INTERRUPT 0xa3
+#	define MT_GPIO_POWER 0x804
+#	define MT_ATN_INTERRUPT 0xa3
 #else
-#define MT_GPIO_POWER 0x701
-#define MT_ATN_INTERRUPT 0x9b
+#	define MT_GPIO_POWER 0x701
+#	define MT_ATN_INTERRUPT 0x9b
 #endif
 
 #ifdef CONFIG_IPHONE_3G
-#define MT_SPI 1
-#define MT_SPI_CS GPIO_SPI1_CS0
+#	define MT_SPI 1
+#	define MT_SPI_CS GPIO_SPI1_CS0
 #else
-#define MT_SPI 2
-#define MT_SPI_CS GPIO_SPI2_CS0
+#	define MT_SPI 2
+#	define MT_SPI_CS GPIO_SPI2_CS0
 #endif
 
 #define MT_INFO_FAMILYID 0xD1
@@ -184,7 +184,7 @@ int zephyr_setup(struct zephyr_data *_z, const u8* ASpeedFirmware, int ASpeedFir
 	memset(_z->GetInfoPacket, 0x82, 0x400);
 	memset(_z->GetResultPacket, 0x68, 0x400);
 
-	if(request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, zephyr_irq, IRQF_TRIGGER_FALLING, "zephyr", _z))
+	if(request_irq(MT_ATN_INTERRUPT + IPHONE_GPIO_IRQS, zephyr_irq, IRQF_TRIGGER_FALLING, "iphone-multitouch", _z))
 	{
 		printk("zephyr: Failed to request z interrupt.\n");
 	}
@@ -1059,12 +1059,17 @@ static int zephyr_remove(struct spi_device *_dev)
 #define zephyr_suspend NULL
 #define zephyr_resume NULL
 
+static const struct spi_device_id zephyr_ids[] = {
+	{"zephyr", 0},
+	{},
+};
 
 static struct spi_driver zephyr_driver = {
 	.driver = {
 		.name = "zephyr",
 	},
 
+	.id_table = zephyr_ids,
 	.probe = zephyr_probe,
 	.remove = zephyr_remove,
 	.shutdown = zephyr_shutdown,
